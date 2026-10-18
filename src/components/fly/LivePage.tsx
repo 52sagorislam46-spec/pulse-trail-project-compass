@@ -546,8 +546,8 @@ function LiveRoom({ liveId, onClose }: { liveId: string; onClose: () => void }) 
           ))}
         </div>
         {gifts.length > 0 && (
-          <div key={gifts[gifts.length - 1].id} className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
-            <span className="text-[120px] live-gift-big">{gifts[gifts.length - 1].emoji}</span>
+          <div key={gifts[gifts.length - 1]!.id} className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
+            <span className="text-[120px] live-gift-big">{gifts[gifts.length - 1]!.emoji}</span>
           </div>
         )}
 
