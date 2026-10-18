@@ -18,6 +18,7 @@ import { MessagesPage } from "./MessagesPage";
 import { CallHistoryPage } from "./CallHistoryPage";
 import { ProfilePage } from "./ProfilePage";
 import { SearchPage } from "./SearchPage";
+import { LiveButton } from "./LivePage";
 import { PostCard } from "./PostCard";
 import { SuggestedUsers } from "./SuggestedUsers";
 import { ReelsPage } from "./ReelsPage";
@@ -73,10 +74,13 @@ function Feed({
           <Bird size={18} className="text-white" />
         </div>
         <h1 className="text-xl font-bold text-gray-900">Fly</h1>
+        <div className="ml-auto">
+          <LiveButton />
+        </div>
         <button
           onClick={onOpenNotifications}
           aria-label="Notifications"
-          className="ml-auto relative w-9 h-9 rounded-full bg-gray-50 border border-gray-100 flex items-center justify-center text-gray-500 active:scale-90 transition-transform"
+          className="relative w-9 h-9 rounded-full bg-gray-50 border border-gray-100 flex items-center justify-center text-gray-500 active:scale-90 transition-transform"
         >
           <Bell size={18} />
           {unreadCount > 0 && (
