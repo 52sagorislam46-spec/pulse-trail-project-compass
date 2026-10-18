@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { onSnapshot, setDoc, updateDoc } from "firebase/firestore";
+import { addDoc, collection, onSnapshot, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
 import {
   Eye,
   Gift,
@@ -20,7 +20,8 @@ import { useAuth } from "./AuthContext";
 import { useStarBalance } from "./StarGift";
 import { useBackClose } from "./useBackClose";
 import { RTC_CONFIG, ensureIceServers, waitForIceGathering } from "./calls";
-import { DEFAULT_AVATAR } from "../../lib/firebase";
+import { DEFAULT_AVATAR, db, uploadToCloudinary } from "../../lib/firebase";
+import { notifyUpload } from "../../lib/appNotifications";
 import {
   LIVE_GIFTS,
   acceptCohost,
@@ -243,17 +244,84 @@ function LiveRoom({ liveId, onClose }: { liveId: string; onClose: () => void }) 
   const [micOn, setMicOn] = useState(true);
   const [facing, setFacing] = useState<"user" | "environment">("user");
   const [joinedAt] = useState(() => Date.now());
+  const { profile } = useAuth();
+  const [saving, setSaving] = useState(false);
+  const recorder = useRef<MediaRecorder | null>(null);
+  const chunks = useRef<Blob[]>([]);
 
   const isHost = !!me && live?.hostId === me.uid;
   const amPublisher = !!me && !!live?.publishers.includes(me.uid);
   const publishers = live?.publishers ?? [];
   const pubKey = publishers.join(",");
 
+  /** Host: stop recording, end the live and upload the recording as a post. */
+  const endAndSave = useCallback(async () => {
+    if (saving) return;
+    setSaving(true);
+    const rec = recorder.current;
+    const blob = await new Promise<Blob | null>((resolve) => {
+      if (!rec || rec.state === "inactive") {
+        resolve(chunks.current.length ? new Blob(chunks.current, { type: chunks.current[0]?.type || "video/webm" }) : null);
+        return;
+      }
+      rec.onstop = () =>
+        resolve(chunks.current.length ? new Blob(chunks.current, { type: rec.mimeType || "video/webm" }) : null);
+      try {
+        rec.stop();
+      } catch {
+        resolve(null);
+      }
+    });
+    recorder.current = null;
+    await endLive(liveId);
+    if (blob && blob.size > 0 && me) {
+      try {
+        const ext = blob.type.includes("mp4") ? "mp4" : "webm";
+        const file = new File([blob], `live-${liveId}.${ext}`, { type: blob.type || "video/webm" });
+        const up = await uploadToCloudinary(file);
+        const title = live?.title ?? "";
+        await addDoc(collection(db, "posts"), {
+          authorId: me.uid,
+          authorName: profile?.displayName || me.name,
+          authorUsername: profile?.username || "",
+          authorPhoto: profile?.photoURL || me.photo,
+          text: title ? `🔴 লাইভ: ${title}` : "🔴 লাইভ ভিডিও",
+          mediaUrl: up.url,
+          mediaType: "video",
+          media: [],
+          taggedUsers: [],
+          bgStyle: "",
+          exclusive: false,
+          product: null,
+          likes: [],
+          comments: [],
+          tags: ["live"],
+          createdAt: serverTimestamp(),
+        });
+        void notifyUpload({
+          type: "reel",
+          actorId: me.uid,
+          actorName: profile?.displayName || me.name,
+          actorPhoto: profile?.photoURL || me.photo,
+          followers: profile?.followers,
+          text: title,
+        });
+      } catch {
+        /* upload is best effort */
+      }
+    }
+    setSaving(false);
+    onClose();
+  }, [saving, liveId, me, profile, live?.title, onClose]);
+
   const close = useCallback(() => {
-    if (isHost) void endLive(liveId);
+    if (isHost) {
+      void endAndSave();
+      return;
+    }
     else if (me && amPublisher) void removePublisher(liveId, me.uid);
     onClose();
-  }, [isHost, amPublisher, liveId, me, onClose]);
+  }, [isHost, amPublisher, liveId, me, onClose, endAndSave]);
   useBackClose(true, close);
 
   useEffect(() => watchLive(liveId, setLive), [liveId]);
@@ -341,6 +409,24 @@ function LiveRoom({ liveId, onClose }: { liveId: string; onClose: () => void }) 
   useEffect(() => {
     local?.getAudioTracks().forEach((t) => (t.enabled = micOn));
   }, [micOn, local]);
+
+  // Host: record the broadcast so it can be uploaded when the live ends.
+  useEffect(() => {
+    if (!isHost || !local || recorder.current || typeof MediaRecorder === "undefined") return;
+    const types = ["video/webm;codecs=vp8,opus", "video/webm", "video/mp4"];
+    const mimeType = types.find((t) => MediaRecorder.isTypeSupported?.(t));
+    try {
+      const rec = new MediaRecorder(local, mimeType ? { mimeType, videoBitsPerSecond: 1_200_000 } : undefined);
+      chunks.current = [];
+      rec.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) chunks.current.push(e.data);
+      };
+      rec.start(1000);
+      recorder.current = rec;
+    } catch {
+      /* recording not supported on this device */
+    }
+  }, [isHost, local]);
 
   // ---- Publisher: answer every viewer's offer ----
   const servePcs = useRef<Map<string, { pc: RTCPeerConnection; ts: number }>>(new Map());
@@ -527,9 +613,16 @@ function LiveRoom({ liveId, onClose }: { liveId: string; onClose: () => void }) 
               )}
             </button>
           )}
-          <button onClick={close} aria-label="Leave live" className={`${isHost ? "" : "ml-auto"} w-9 h-9 rounded-full bg-black/40 flex items-center justify-center`}>
-            <X size={18} />
-          </button>
+          {isHost ? (
+            <button onClick={close} disabled={saving} aria-label="End live" className="px-3 h-9 rounded-full bg-rose-500 text-xs font-bold flex items-center gap-1 disabled:opacity-70">
+              {saving ? <Loader2 size={14} className="animate-spin" /> : <X size={14} />}
+              {saving ? "আপলোড হচ্ছে…" : "লাইভ শেষ"}
+            </button>
+          ) : (
+            <button onClick={close} aria-label="Leave live" className="ml-auto w-9 h-9 rounded-full bg-black/40 flex items-center justify-center">
+              <X size={18} />
+            </button>
+          )}
         </div>
 
         {/* Gift banners */}
@@ -575,6 +668,9 @@ function LiveRoom({ liveId, onClose }: { liveId: string; onClose: () => void }) 
 
         {/* Bottom bar */}
         <div className="relative z-10 flex items-center gap-2 p-3">
+          {isHost ? (
+            <div className="flex-1 text-xs text-white/70 pl-1">💬 {comments.length} কমেন্ট</div>
+          ) : (
           <form
             className="flex-1 flex items-center bg-black/40 rounded-full pl-4 pr-1 h-10"
             onSubmit={(e) => {
@@ -587,6 +683,7 @@ function LiveRoom({ liveId, onClose }: { liveId: string; onClose: () => void }) 
               <Send size={16} />
             </button>
           </form>
+          )}
           {amPublisher ? (
             <>
               <button onClick={() => setMicOn((m) => !m)} aria-label="Microphone" className="w-10 h-10 rounded-full bg-black/40 flex items-center justify-center">
@@ -716,5 +813,45 @@ function RequestSheet({
         ))}
       </div>
     </div>
+  );
+}
+
+/** Timeline strip: shows everyone who is live right now. Tap to watch. */
+export function LiveNowStrip() {
+  const [lives, setLives] = useState<LiveDoc[]>([]);
+  const [room, setRoom] = useState<string | null>(null);
+  useEffect(() => watchLives(setLives), []);
+  if (lives.length === 0 && !room) return null;
+  return (
+    <>
+      {lives.length > 0 && (
+        <div className="px-4 py-3 border-b border-gray-100">
+          <p className="text-xs font-bold text-rose-500 mb-2 flex items-center gap-1">
+            <Radio size={14} /> এখন লাইভে
+          </p>
+          <div className="flex gap-3 overflow-x-auto">
+            {lives.map((l) => (
+              <button
+                key={l.id}
+                onClick={() => setRoom(l.id)}
+                className="shrink-0 w-28 rounded-2xl overflow-hidden relative bg-gray-900 text-white text-left active:scale-95 transition-transform"
+              >
+                <img src={l.hostPhoto || DEFAULT_AVATAR} alt="" className="w-28 h-36 object-cover opacity-80" />
+                <span className="absolute top-1.5 left-1.5 px-1.5 py-0.5 rounded bg-rose-500 text-[9px] font-bold">LIVE</span>
+                <span className="absolute top-1.5 right-1.5 px-1.5 py-0.5 rounded bg-black/50 text-[9px] flex items-center gap-0.5">
+                  <Eye size={9} /> {Math.max(0, l.viewers ?? 0)}
+                </span>
+                <div className="absolute bottom-0 inset-x-0 p-1.5 bg-gradient-to-t from-black/80 to-transparent">
+                  <p className="text-[11px] font-bold truncate">{l.hostName}</p>
+                  <p className="text-[10px] text-white/80 truncate">{l.title}</p>
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      {room && typeof document !== "undefined" &&
+        createPortal(<LiveRoom liveId={room} onClose={() => setRoom(null)} />, document.body)}
+    </>
   );
 }
