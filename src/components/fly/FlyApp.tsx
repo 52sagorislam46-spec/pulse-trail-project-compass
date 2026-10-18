@@ -18,7 +18,7 @@ import { MessagesPage } from "./MessagesPage";
 import { CallHistoryPage } from "./CallHistoryPage";
 import { ProfilePage } from "./ProfilePage";
 import { SearchPage } from "./SearchPage";
-import { LiveButton } from "./LivePage";
+import { LiveButton, LiveNowStrip } from "./LivePage";
 import { PostCard } from "./PostCard";
 import { SuggestedUsers } from "./SuggestedUsers";
 import { ReelsPage } from "./ReelsPage";
@@ -98,6 +98,7 @@ function Feed({
         </button>
       </header>
       <StoriesBar />
+      <LiveNowStrip />
       <TagFilterBar tags={tags} active={tag} onChange={setTag} />
       {loading ? (
         <div className="flex justify-center py-16">

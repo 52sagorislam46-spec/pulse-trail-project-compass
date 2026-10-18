@@ -24,7 +24,7 @@ import { db } from "./firebase";
 import { showNotification } from "./notify";
 import { pushToUsers } from "./push";
 
-export type AppNotificationType = "post" | "reel" | "story" | "admin" | "gift";
+export type AppNotificationType = "post" | "reel" | "story" | "admin" | "gift" | "live";
 
 export interface AppNotification {
   id: string;
@@ -84,7 +84,9 @@ export async function notifyUpload(input: {
       createdAt: serverTimestamp(),
     });
     const label =
-      input.type === "story"
+      input.type === "live"
+        ? "is live now 🔴"
+        : input.type === "story"
         ? "added a new story."
         : input.type === "reel"
           ? "shared a new reel."
@@ -138,6 +140,7 @@ export async function notifyAdminNotice(input: {
 
 export function notificationLabel(n: AppNotification): string {
   if (n.type === "admin") return "sent you a notice.";
+  if (n.type === "live") return "is live now 🔴";
   if (n.type === "story") return "added a new story.";
   if (n.type === "gift") return "sent you stars.";
   if (n.type === "reel") return "shared a new reel.";

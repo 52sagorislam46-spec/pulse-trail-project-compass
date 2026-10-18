@@ -18,6 +18,7 @@ import {
 } from "firebase/firestore";
 import { db } from "../../lib/firebase";
 import { STARTER_STARS } from "./StarGift";
+import { notifyUpload } from "../../lib/appNotifications";
 
 /** A public one-to-many live broadcast. Signaling runs through Firestore. */
 export interface LiveDoc {
@@ -115,6 +116,14 @@ export async function startLive(host: { uid: string; name: string; photo: string
     startedAt: Date.now(),
     updatedAt: Date.now(),
     createdAt: serverTimestamp(),
+  });
+  // Tell everyone the host just went live (best effort).
+  void notifyUpload({
+    type: "live",
+    actorId: host.uid,
+    actorName: host.name,
+    actorPhoto: host.photo,
+    text: title.trim(),
   });
   return ref.id;
 }
