@@ -303,7 +303,7 @@ function LiveRoom({ liveId, onClose }: { liveId: string; onClose: () => void }) 
           actorId: me.uid,
           actorName: profile?.displayName || me.name,
           actorPhoto: profile?.photoURL || me.photo,
-          followers: profile?.followers,
+          followers: profile?.followers ?? [],
           text: title,
         });
       } catch {
