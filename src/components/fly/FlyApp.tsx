@@ -80,7 +80,7 @@ function Feed({
         <button
           onClick={onOpenNotifications}
           aria-label="Notifications"
-          className="ml-auto relative w-9 h-9 rounded-full bg-gray-50 border border-gray-100 flex items-center justify-center text-gray-500 active:scale-90 transition-transform"
+          className="relative w-9 h-9 rounded-full bg-gray-50 border border-gray-100 flex items-center justify-center text-gray-500 active:scale-90 transition-transform"
         >
           <Bell size={18} />
           {unreadCount > 0 && (
